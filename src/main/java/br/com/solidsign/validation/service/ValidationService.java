@@ -60,8 +60,8 @@ public class ValidationService {
         }
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        for (File cms : cmsFiles) {
-            body.add("document", new FileSystemResource(cms));
+        for (int i = 0; i < cmsFiles.length; i++) {
+            body.add("signedFile[" + i + "]", new FileSystemResource(cmsFiles[i]));
         }
 
         // Attach original files for DETACHED CAdES if the directory is configured
@@ -77,7 +77,7 @@ public class ValidationService {
         }
 
         log.info("Validating {} CMS file(s) from {}", cmsFiles.length, batchInputPath);
-        return callApi(body);
+        return callApi(body, null, null);
     }
 
     /**
@@ -87,15 +87,20 @@ public class ValidationService {
      */
     public ValidationReportsResponseDTO validateForm(
             List<MultipartFile> cmsFiles,
-            List<MultipartFile> origFiles) throws IOException {
+            List<MultipartFile> origFiles,
+            String authorizationOverride,
+            String baseUrlOverride) throws IOException {
 
+        // The real SolidSign API reads indexed multipart fields (signedFile[0], signedFile[1], ...),
+        // not a plain repeated "document" field — that field name silently produced empty uploads.
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        for (MultipartFile mf : cmsFiles) {
+        for (int i = 0; i < cmsFiles.size(); i++) {
+            MultipartFile mf = cmsFiles.get(i);
             Path tmp = Files.createTempFile("solidsign-cms-", ".p7s");
             mf.transferTo(tmp);
             tmp.toFile().deleteOnExit();
             String originalName = mf.getOriginalFilename();
-            body.add("document", new FileSystemResource(tmp.toFile()) {
+            body.add("signedFile[" + i + "]", new FileSystemResource(tmp.toFile()) {
                 @Override public String getFilename() { return originalName; }
             });
         }
@@ -115,16 +120,19 @@ public class ValidationService {
         }
 
         log.info("Validating {} uploaded CMS file(s)", cmsFiles.size());
-        return callApi(body);
+        return callApi(body, authorizationOverride, baseUrlOverride);
     }
 
-    private ValidationReportsResponseDTO callApi(MultiValueMap<String, Object> body) {
+    private ValidationReportsResponseDTO callApi(MultiValueMap<String, Object> body, String authorizationOverride, String baseUrlOverride) {
+        String auth = (authorizationOverride != null && !authorizationOverride.isBlank()) ? authorizationOverride : authorization;
+        String effectiveBaseUrl = (baseUrlOverride != null && !baseUrlOverride.isBlank()) ? baseUrlOverride : baseUrl;
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        headers.set(HttpHeaders.AUTHORIZATION, authorization);
+        headers.set(HttpHeaders.AUTHORIZATION, auth.startsWith("Bearer ") ? auth : "Bearer " + auth);
 
         HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
-        String url = baseUrl.replaceAll("/+$", "") + "/solidsign/dsig/validation/verify-cms";
+        String url = effectiveBaseUrl.replaceAll("/+$", "") + "/solidsign/dsig/validation/verify-cms";
 
         ResponseEntity<ValidationReportsResponseDTO> response =
             restTemplate.exchange(url, HttpMethod.POST, request, ValidationReportsResponseDTO.class);

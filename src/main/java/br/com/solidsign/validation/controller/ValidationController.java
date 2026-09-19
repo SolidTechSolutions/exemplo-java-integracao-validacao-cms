@@ -51,11 +51,14 @@ public class ValidationController {
      *        -F "document=@/path/to/signature.p7s" \
      *        -F "originalFile=@/path/to/original.pdf"
      */
+    @CrossOrigin
     @PostMapping("/form")
     public ResponseEntity<ValidationReportsResponseDTO> validateForm(
             @RequestPart("document") List<MultipartFile> cmsFiles,
-            @RequestPart(value = "originalFile", required = false) List<MultipartFile> origFiles)
+            @RequestPart(value = "originalFile", required = false) List<MultipartFile> origFiles,
+            @RequestPart(value = "authorization", required = false) String authorization,
+            @RequestPart(value = "baseUrl", required = false) String baseUrl)
             throws IOException {
-        return ResponseEntity.ok(service.validateForm(cmsFiles, origFiles));
+        return ResponseEntity.ok(service.validateForm(cmsFiles, origFiles, authorization, baseUrl));
     }
 }
